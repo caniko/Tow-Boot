@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Codex <codex@openai.com>
+Date: Sun, 19 Apr 2026 17:10:00 +0200
+Subject: [PATCH] Revert "rockchip: usb2phy refcounted init/power helpers"
+
+This is a ROCKPro64 USB probe investigation helper patch.
+
+The stock upstream v2023.07 build does not reproduce the USB3 probe crash on
+the same hardware path, while the Tow-Boot-flavoured tb-2023.07-007 tree does.
+One of the few USB-path source deltas between those trees is an added refcount
+scheme in drivers/phy/rockchip/phy-rockchip-inno-usb2.c.
+
+This patch restores the stock v2023.07 behavior for testing.
+---
+ drivers/phy/rockchip/phy-rockchip-inno-usb2.c | 24 ------------------------
+ 1 file changed, 24 deletions(-)
+
+diff --git a/drivers/phy/rockchip/phy-rockchip-inno-usb2.c b/drivers/phy/rockchip/phy-rockchip-inno-usb2.c
+index 4f87fddc39..c22db5a49e 100644
+--- a/drivers/phy/rockchip/phy-rockchip-inno-usb2.c
++++ b/drivers/phy/rockchip/phy-rockchip-inno-usb2.c
+@@ -64,8 +64,6 @@ struct rockchip_usb2phy {
+ 	void *reg_base;
+ 	struct clk phyclk;
+ 	const struct rockchip_usb2phy_cfg *phy_cfg;
+-	int init_count;
+-	int power_on_count;
+ };
+ 
+ static inline int property_enable(void *reg_base,
+@@ -108,10 +106,6 @@ static int rockchip_usb2phy_power_on(struct phy *phy)
+ 	struct rockchip_usb2phy *priv = dev_get_priv(parent);
+ 	const struct rockchip_usb2phy_port_cfg *port_cfg = us2phy_get_port(phy);
+ 
+-	priv->power_on_count++;
+-	if (priv->power_on_count != 1)
+-		return 0;
+-
+ 	property_enable(priv->reg_base, &port_cfg->phy_sus, false);
+ 
+ 	/* waiting for the utmi_clk to become stable */
+@@ -126,10 +120,6 @@ static int rockchip_usb2phy_power_off(struct phy *phy)
+ 	struct rockchip_usb2phy *priv = dev_get_priv(parent);
+ 	const struct rockchip_usb2phy_port_cfg *port_cfg = us2phy_get_port(phy);
+ 
+-	priv->power_on_count--;
+-	if (priv->power_on_count != 0)
+-		return 0;
+-
+ 	property_enable(priv->reg_base, &port_cfg->phy_sus, true);
+ 
+ 	return 0;
+@@ -142,10 +132,6 @@ static int rockchip_usb2phy_init(struct phy *phy)
+ 	const struct rockchip_usb2phy_port_cfg *port_cfg = us2phy_get_port(phy);
+ 	int ret;
+ 
+-	priv->init_count++;
+-	if (priv->init_count != 1)
+-		return 0;
+-
+ 	ret = clk_enable(&priv->phyclk);
+ 	if (ret && ret != -ENOSYS) {
+ 		dev_err(phy->dev, "failed to enable phyclk (ret=%d)\n", ret);
+@@ -168,10 +154,6 @@ static int rockchip_usb2phy_exit(struct phy *phy)
+ 	struct udevice *parent = dev_get_parent(phy->dev);
+ 	struct rockchip_usb2phy *priv = dev_get_priv(parent);
+ 
+-	priv->init_count--;
+-	if (priv->init_count != 0)
+-		return 0;
+-
+ 	clk_disable(&priv->phyclk);
+ 
+ 	return 0;
+@@ -312,9 +294,6 @@ static int rockchip_usb2phy_probe(struct udevice *dev)
+ 		return ret;
+ 	}
+ 
+-	priv->power_on_count = 0;
+-	priv->init_count = 0;
+-
+ 	return 0;
+ }
+ 
+-- 
+2.49.0
